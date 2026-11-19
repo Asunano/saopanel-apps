@@ -99,7 +99,6 @@ http {
     listen 80 default_server;
     server_name _;
     location = /healthz { return 200 "ok\n"; }
-    location = /__health { return 200 "ok\n"; }
     location = /nginx_status { stub_status; }
     location / { return 404; }
   }
