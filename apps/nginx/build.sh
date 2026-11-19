@@ -66,7 +66,7 @@ if [ ! -f /etc/alpine-release ]; then
 fi
 
 echo ">> package-manager free build: this is Alpine $(cat /etc/alpine-release)"
-apk add --no-cache build-base pcre2-dev linux-headers curl tar coreutils >/dev/null
+apk add --no-cache build-base pcre2-dev linux-headers curl tar coreutils perl >/dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
