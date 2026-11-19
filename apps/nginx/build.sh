@@ -1,5 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Build a fully static nginx for the panel's app store.
+#
+# The shebang is /bin/sh and the first thing the script does is install bash and
+# re-exec itself: the build needs `set -o pipefail` to tell a failed compile from
+# a failed tee, and Alpine has no bash until you install it. Docker is invoked
+# with /bin/sh for the same reason - `docker run alpine /bin/bash` fails before
+# the script that would install bash ever runs.
 #
 # What lands in the tarball:
 #   sbin/nginx           static binary (musl, no shared objects)
@@ -16,7 +22,14 @@
 #
 # Every build step keeps its output. A build that fails has to say why: the
 # first version sent configure and make to /dev/null and reported a bare exit 1.
-set -euo pipefail
+set -eu
+
+# Bootstrap: inside Alpine, get bash and re-exec. Outside Alpine this is a no-op.
+if [ -f /etc/alpine-release ] && [ "${SAO_BASH:-0}" != "1" ]; then
+	apk add --no-cache bash >/dev/null
+	exec env SAO_BASH=1 bash "$0" "$@"
+fi
+set -o pipefail
 
 VERSION=${NGINX_VERSION:-1.31.9}
 BUILD=${BUILD:-sao-r1}
@@ -49,11 +62,11 @@ if [ ! -f /etc/alpine-release ]; then
 		-e NGINX_VERSION="$VERSION" -e BUILD="$BUILD" -e TARGETARCH="$ARCH" \
 		-e SRC_SHA256="$SRC_SHA256" -e ZLIB_VERSION="$ZLIB_VERSION" \
 		-e OPENSSL_VERSION="$OPENSSL_VERSION" \
-		-v "$PWD:/w" -w /w "$ALPINE_IMAGE" /bin/bash ./apps/nginx/build.sh
+		-v "$PWD:/w" -w /w "$ALPINE_IMAGE" /bin/sh ./apps/nginx/build.sh
 fi
 
 echo ">> package-manager free build: this is Alpine $(cat /etc/alpine-release)"
-apk add --no-cache bash build-base pcre2-dev linux-headers curl tar coreutils >/dev/null
+apk add --no-cache build-base pcre2-dev linux-headers curl tar coreutils >/dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
