@@ -24,9 +24,9 @@ SRC="https://nginx.org/download/nginx-${VERSION}.tar.gz"
 # the build and a swapped upstream.
 SRC_SHA256=${SRC_SHA256:-a11c5eeee2e257f4478f0e649f84b0040787d277d2d3e5233952aa6b6dcb80ad}
 
-# Pinned by digest. Set it from
-#   docker buildx imagetools inspect alpine:3.20
-# and commit the result; the script refuses to build with an unpinned image.
+# Pinned by digest. CI resolves the digest and exports it (see build-app.yml);
+# a local run has to pin it too. There is no :3.20 fallback on purpose - a
+# floating tag means the bytes change without this file changing.
 ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.20@sha256:REPLACE_WITH_DIGEST}
 
 if [ ! -f /etc/alpine-release ]; then
@@ -92,6 +92,17 @@ http {
   uwsgi_temp_path /var/lib/saopanel/apps/nginx/tmp/uwsgi;
   scgi_temp_path /var/lib/saopanel/apps/nginx/tmp/scgi;
   include /var/lib/saopanel/site-conf/*.conf;
+
+  # First boot has no site config yet, so the binary must answer for itself or
+  # the installer's probe would fail on a machine that is working perfectly.
+  server {
+    listen 80 default_server;
+    server_name _;
+    location = /healthz { return 200 "ok\n"; }
+    location = /__health { return 200 "ok\n"; }
+    location = /nginx_status { stub_status; }
+    location / { return 404; }
+  }
 }
 CONF
 

@@ -25,7 +25,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The digest is resolved here, not committed by hand: a wrong constant is
+      # a build that silently uses a different toolchain. The daocloud mirror is
+      # the fallback because registry-1.docker.io is unreachable from some
+      # networks (including the one this repo was written on).
+      - name: resolve alpine digest
+        run: |
+          set -eu
+          D="$(docker buildx imagetools inspect alpine:3.20 --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+          if [ -z "$D" ]; then
+            D="$(skopeo inspect --format '{{.Digest}}' docker://docker.m.daocloud.io/library/alpine:3.20 2>/dev/null || true)"
+          fi
+          if [ -z "$D" ]; then
+            echo "could not resolve a digest for alpine:3.20; refusing to build loose" >&2
+            exit 1
+          fi
+          echo "alpine@$D"
+          echo "ALPINE_IMAGE=alpine:3.20@$D" >> "$GITHUB_ENV"
+
       - name: build in pinned Alpine
+
         run: |
           chmod +x apps/nginx/build.sh
           TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r1} \
