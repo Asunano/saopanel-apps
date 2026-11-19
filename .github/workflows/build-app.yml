@@ -1,0 +1,78 @@
+name: build-nginx
+
+# Two architectures, one script. The native arm64 runner is used when the repo
+# is public; the qemu path is the fallback so a private repo still produces the
+# same bytes.
+on:
+  push:
+    tags: ['nginx-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build in pinned Alpine
+        run: |
+          chmod +x apps/nginx/build.sh
+          TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r1} \
+            sh apps/nginx/build.sh
+
+      - name: verify artefact
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          tar -tzf nginx-*.tar.gz | head
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nginx-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: aggregate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+
+      # Mirror to R2 with the same names, so a blocked GitHub still installs.
+      - name: sync to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          command -v aws >/dev/null || pipx install awscli >/dev/null
+          for f in dist/*.tar.gz dist/SHA256SUMS; do
+            aws s3 cp "$f" "s3://$R2_BUCKET/apps/nginx/${GITHUB_REF_NAME#nginx-v}/$(basename "$f")" \
+              --endpoint-url "$R2_ENDPOINT"
+          done

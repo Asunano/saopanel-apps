@@ -1,0 +1,32 @@
+# Template for the published nginx manifest. The release workflow fills the
+# <…> fields from the build it just produced and writes the result to
+# dist/nginx.yaml, which is what the panel's local manifest directory must
+# contain. Any field left as <…> makes the panel refuse the manifest, which is
+# the point: an unfilled placeholder is an unfinished release.
+id: nginx
+name: Nginx
+version: 1.31.9
+build: sao-r1
+runtime: systemd
+summary: 静态编译的 nginx，由面板托管配置与站点
+homepage: https://github.com/<org>/saopanel-apps
+install:
+  type: tarball
+  url: https://github.com/<org>/saopanel-apps/releases/download/nginx-v1.31.9-sao-r1/nginx-1.31.9-sao-r1-linux-<arch>.tar.gz
+  mirrors:
+    - https://dl.<domain>/apps/nginx/1.31.9-sao-r1/nginx-1.31.9-sao-r1-linux-<arch>.tar.gz
+    - https://gh-proxy.com/https://github.com/<org>/saopanel-apps/releases/download/nginx-v1.31.9-sao-r1/nginx-1.31.9-sao-r1-linux-<arch>.tar.gz
+  sha256: "<sha256>"
+  size: <size>
+capabilities: [http_ssl, http_v2, realip, stub_status, gzip_static, stream]
+services:
+  - unit: saopanel-nginx
+    ports: [80, 443]
+uninstall:
+  remove:
+    - /var/lib/saopanel/apps/nginx/1.31.9-sao-r1
+    - /etc/systemd/system/saopanel-nginx.service
+  keep:
+    - /var/lib/saopanel/site-conf
+    - /var/www
+    - /var/lib/saopanel/certs
