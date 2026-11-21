@@ -1,8 +1,9 @@
 name: build-nginx
 
 # Two architectures, one script. The native arm64 runner is used when the repo
-# is public; the qemu path is the fallback so a private repo still produces the
-# same bytes.
+# is public; qemu is installed as the fallback so a private repo still builds
+# the same bytes (slower, but the artefact is identical — build.sh pins every
+# source by sha256 and the base image by digest).
 on:
   push:
     tags: ['nginx-v*']
@@ -25,6 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A private repo has no arm64 runner; this is a no-op where the runner is
+      # already native and registers binfmt where it is not.
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'arm64'
+
       # The digest is resolved here, not committed by hand: a wrong constant is
       # a build that silently uses a different toolchain. The daocloud mirror is
       # the fallback because registry-1.docker.io is unreachable from some
@@ -44,7 +50,6 @@ jobs:
           echo "ALPINE_IMAGE=alpine:3.20@$D" >> "$GITHUB_ENV"
 
       - name: build in pinned Alpine
-
         run: |
           chmod +x apps/nginx/build.sh
           TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r1} \
@@ -55,6 +60,11 @@ jobs:
           cd dist
           sha256sum -c SHA256SUMS
           tar -tzf nginx-*.tar.gz | head
+          # The binary proves what it is in its own words: build.sh has already
+          # refused the build if `file` did not say static, if ldd resolved a
+          # library, or if -t failed, and it fails here if this text lost one of
+          # the modules the manifest promises.
+          cat "nginx-V-${{ matrix.arch }}.txt"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -65,22 +75,44 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: aggregate checksums
+      # The manifest is rendered from the tarballs that were just built, so its
+      # sha256 and size are measured, never typed. release.sh refuses to publish
+      # with a missing architecture or a leftover placeholder.
+      - name: render manifest
+        env:
+          APP_ORG: ${{ github.repository_owner }}
         run: |
-          cd dist
-          sha256sum *.tar.gz > SHA256SUMS
-          cat SHA256SUMS
+          chmod +x apps/release.sh
+          chmod +x apps/nginx/build.sh
+          apps/release.sh --from-existing
+
+      # The final judge is the panel's own loader (saopanel/internal/appstore/
+      # manifest), and it runs in the panel repo when the manifests are packaged
+      # into a release: `make release` refuses a manifest the panel cannot read.
+      # Here the checks that need no panel source are the ones that catch the
+      # mistakes this workflow can actually make.
+      - name: check the manifest is complete
+        run: |
+          echo "manifest written: $(wc -l < dist/apps/nginx.yaml) lines"
+          test "$(grep -c 'sha256: "' dist/apps/nginx.yaml)" -eq 2
+          test "$(grep -c 'arch: ' dist/apps/nginx.yaml)" -eq 2
+          ! grep -nE '<[a-z]+>' dist/apps/nginx.yaml
+          cat dist/apps/nginx.yaml
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.tar.gz
+            dist/nginx-*-linux-*.tar.gz
             dist/SHA256SUMS
+            dist/apps/nginx.yaml
+            dist/nginx-V-*.txt
 
       # Mirror to R2 with the same names, so a blocked GitHub still installs.
       - name: sync to R2
@@ -91,7 +123,7 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           command -v aws >/dev/null || pipx install awscli >/dev/null
-          for f in dist/*.tar.gz dist/SHA256SUMS; do
+          for f in dist/nginx-*-linux-*.tar.gz dist/SHA256SUMS dist/apps/nginx.yaml; do
             aws s3 cp "$f" "s3://$R2_BUCKET/apps/nginx/${GITHUB_REF_NAME#nginx-v}/$(basename "$f")" \
               --endpoint-url "$R2_ENDPOINT"
           done

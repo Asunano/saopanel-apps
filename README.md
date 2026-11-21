@@ -14,13 +14,40 @@ service itself.
     build    sao-r<n> — bump r for every rebuild of the same upstream version,
              never reuse one; a new upstream version restarts at r1.
 
-## Building locally
+## Building
 
-    TARGETARCH=amd64 sh apps/nginx/build.sh     # needs docker + a pinned digest
+    APP_ORG=<github-org> apps/release.sh          # both arches, then the manifest
 
-`ALPINE_IMAGE` must carry a digest; the script refuses to run with the
-placeholder, because an unpinned base image makes two builds of the same tag
-differ with no way to explain it.
+`apps/release.sh` builds every architecture, measures the tarballs it just
+produced, and renders `dist/apps/nginx.yaml` with those checksums and sizes.
+Nothing in the manifest is typed by hand: a checksum that is copied from
+somewhere else is a checksum that will disagree with the bytes on the customer's
+machine.
+
+A single architecture is refused unless `--allow-partial` is passed, and that
+flag exists for local drills only — a published release that covers one
+architecture fails on every machine of the other one.
+
+Building one architecture directly is still possible:
+
+    TARGETARCH=amd64 sh apps/nginx/build.sh
+
+Releases are cut by pushing a tag (`nginx-v*`); `.github/workflows/build-app.yml`
+builds both architectures, renders the manifest, and publishes the tarballs,
+`SHA256SUMS`, `nginx-V-<arch>.txt` and the manifest as release assets.
+
+### Networks that cannot reach the sources
+
+`build.sh` fetches nginx, zlib and OpenSSL and verifies each against a pinned
+sha256. Two overrides exist for hosts that cannot reach them, and neither
+weakens the check:
+
+    SRC_DIR=/path/to/tarballs   # use openssl-3.3.2.tar.gz etc. from here, no network
+    APK_MIRROR=https://mirrors.aliyun.com   # apk mirror; packages stay signature-checked
+    ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.20@sha256:d9e853e8…
+
+The digest is the same on every registry (it hashes the manifest list, not a
+tag), so a mirror is only a different route to the same bytes.
 
 ## Layout of a package
 

@@ -1,11 +1,16 @@
 #!/bin/sh
 # Build a fully static nginx for the panel's app store.
 #
-# The shebang is /bin/sh and the first thing the script does is install bash and
-# re-exec itself: the build needs `set -o pipefail` to tell a failed compile from
-# a failed tee, and Alpine has no bash until you install it. Docker is invoked
-# with /bin/sh for the same reason - `docker run alpine /bin/bash` fails before
-# the script that would install bash ever runs.
+# The shebang is /bin/sh and the second thing the script does (after `set -eu`,
+# which every shell has) is re-exec itself under bash: the build needs
+# `set -o pipefail` to tell a failed compile from a failed tee. Two environments
+# have to be handled, and the first version handled only one of them:
+#   - Alpine has no bash until it is installed, so it installs it first;
+#   - Debian/Ubuntu (the CI runners, and any laptop) have bash but run
+#     `sh build.sh` under dash, where `set -o pipefail` is a hard error. That
+#     version died at line 32 on a runner with bash sitting right there.
+# Docker is entered with /bin/sh for the same reason - `docker run alpine
+# /bin/bash` fails before the script that would install bash ever runs.
 #
 # What lands in the tarball:
 #   sbin/nginx           static binary (musl, no shared objects)
@@ -24,10 +29,18 @@
 # first version sent configure and make to /dev/null and reported a bare exit 1.
 set -eu
 
-# Bootstrap: inside Alpine, get bash and re-exec. Outside Alpine this is a no-op.
-if [ -f /etc/alpine-release ] && [ "${SAO_BASH:-0}" != "1" ]; then
-	apk add --no-cache bash >/dev/null
-	exec env SAO_BASH=1 bash "$0" "$@"
+# Bootstrap: get a bash and re-exec under it, once. Inside Alpine that means
+# installing it first; anywhere else bash is simply present and dash is not the
+# shell this script is written for.
+if [ "${SAO_BASH:-0}" != "1" ]; then
+	if ! command -v bash >/dev/null && [ -f /etc/alpine-release ]; then
+		apk add --no-cache bash >/dev/null
+	fi
+	if command -v bash >/dev/null; then
+		exec env SAO_BASH=1 bash "$0" "$@"
+	fi
+	echo "build.sh: bash is required (set -o pipefail); install it and re-run" >&2
+	exit 2
 fi
 set -o pipefail
 
@@ -42,10 +55,32 @@ SRC_SHA256=${SRC_SHA256:-a11c5eeee2e257f4478f0e649f84b0040787d277d2d3e5233952aa6
 ZLIB_VERSION=${ZLIB_VERSION:-1.3.1}
 OPENSSL_VERSION=${OPENSSL_VERSION:-3.3.2}
 
-# Pinned by digest. CI resolves it (see build-app.yml) and exports ALPINE_IMAGE;
-# a local run has to pin it too. There is deliberately no floating-tag fallback:
-# a tag means the toolchain can change without this file changing.
-ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.20@sha256:REPLACE_WITH_DIGEST}
+# Where the two static dependencies come from, and what they must hash to.
+#
+# Both URLs were changed after the first real run of this script failed on them
+# with the network it had:
+#   - zlib used github.com/madler/zlib/releases, which is a redirect to
+#     objects.githubusercontent.com. zlib.net serves the same bytes directly and
+#     is the project's own host, so there is one less redirect between the build
+#     and the source.
+#   - openssl's /source/ directory only holds the current release; 3.3.2 has
+#     moved to /source/old/3.3/, and the old path is served by openssl.org
+#     itself instead of redirecting to a GitHub release asset.
+# The sha256 of openssl is the one published in the release's own .sha256
+# sidecar; zlib's was measured on the tarball from zlib.net.
+ZLIB_URL=${ZLIB_URL:-https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz}
+ZLIB_SHA256=${ZLIB_SHA256:-9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23}
+OPENSSL_URL=${OPENSSL_URL:-https://www.openssl.org/source/old/3.3/openssl-${OPENSSL_VERSION}.tar.gz}
+OPENSSL_SHA256=${OPENSSL_SHA256:-2e8a40b01979afe8be0bbfb3de5dc1c6709fedb46d6c89c10da114ab5fc3d281}
+
+# Pinned by digest, index digest of alpine:3.20 (the same digest on every
+# registry: it is a hash of the manifest list, not of a tag). CI re-resolves it
+# on every run and exports ALPINE_IMAGE, so a retagged upstream base changes
+# nothing here. A local run in a network where registry-1.docker.io is blocked
+# passes the mirror name explicitly:
+#   ALPINE_IMAGE=docker.m.daocloud.io/library/alpine:3.20@sha256:d9e853e8... \
+#     sh apps/nginx/build.sh
+ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc}
 
 if [ ! -f /etc/alpine-release ]; then
 	case "$ALPINE_IMAGE" in
@@ -58,14 +93,33 @@ if [ ! -f /etc/alpine-release ]; then
 		echo "build.sh: docker is required outside Alpine" >&2
 		exit 2
 	}
-	exec docker run --rm --platform "linux/${ARCH}" \
-		-e NGINX_VERSION="$VERSION" -e BUILD="$BUILD" -e TARGETARCH="$ARCH" \
+	# SRC_DIR is mounted at /src and the container reads the cache from there;
+	# without it the container downloads, exactly as CI does.
+	set -- -e NGINX_VERSION="$VERSION" -e BUILD="$BUILD" -e TARGETARCH="$ARCH" \
 		-e SRC_SHA256="$SRC_SHA256" -e ZLIB_VERSION="$ZLIB_VERSION" \
-		-e OPENSSL_VERSION="$OPENSSL_VERSION" \
-		-v "$PWD:/w" -w /w "$ALPINE_IMAGE" /bin/sh ./apps/nginx/build.sh
+		-e OPENSSL_VERSION="$OPENSSL_VERSION" -e ZLIB_URL="$ZLIB_URL" \
+		-e ZLIB_SHA256="$ZLIB_SHA256" -e OPENSSL_URL="$OPENSSL_URL" \
+		-e OPENSSL_SHA256="$OPENSSL_SHA256" \
+		-v "$PWD:/w" -w /w
+	if [ -n "${SRC_DIR:-}" ]; then
+		set -- "$@" -v "$SRC_DIR:/src:ro" -e SRC_DIR=/src
+	fi
+	if [ -n "${APK_MIRROR:-}" ]; then
+		set -- "$@" -e APK_MIRROR="$APK_MIRROR"
+	fi
+	exec docker run --rm --platform "linux/${ARCH}" "$@" "$ALPINE_IMAGE" /bin/sh ./apps/nginx/build.sh
 fi
 
 echo ">> package-manager free build: this is Alpine $(cat /etc/alpine-release)"
+# Optional apk mirror: the host that stands in for dl-cdn.alpinelinux.org, so
+# APK_MIRROR=https://mirrors.aliyun.com turns .../alpine/v3.20/main into
+# .../alpine/v3.20/main. Packages stay signature-verified against Alpine's keys,
+# so this changes how fast the toolchain arrives, not what it is. It exists
+# because the CDN delivered ~100KB/s on the network this script was first run
+# on, which turned a six-minute build into an afternoon.
+if [ -n "${APK_MIRROR:-}" ]; then
+	sed -i "s|https://dl-cdn.alpinelinux.org|${APK_MIRROR%/}|g" /etc/apk/repositories
+fi
 apk add --no-cache build-base pcre2-dev linux-headers curl tar coreutils perl >/dev/null
 
 work=$(mktemp -d)
@@ -92,8 +146,42 @@ run_step() {
 	return "$rc"
 }
 
+# fetch_verified <file> <url> <sha256>
+#
+# Downloads one source and refuses to continue unless it hashes to the pinned
+# value. Every dependency goes through here, including the ones whose URL is
+# overridden, so "the mirror was different" can never mean "the bytes were
+# different".
+#
+# SRC_DIR is an offline cache: if it holds a file by the same name, that file is
+# used and no network is touched. It is mounted into the container by the docker
+# branch below, which is how a build runs on a host whose network cannot reach
+# the sources at all (this project's first dry-run had exactly that problem).
+fetch_verified() {
+	local file=$1 url=$2 want=$3 cached=""
+	if [ -n "${SRC_DIR:-}" ]; then
+		# The cache keeps upstream file names; the build uses short local ones.
+		for candidate in "${SRC_DIR}/${file}" "${SRC_DIR}/$(basename "$url")"; do
+			[ -f "$candidate" ] && cached=$candidate && break
+		done
+	fi
+	if [ -n "$cached" ]; then
+		echo ">> ${file} <- ${cached} (offline cache)"
+		cp "$cached" "${file}.part"
+	else
+		echo ">> ${file} <- ${url}"
+		curl -fsSL --retry 3 -o "${file}.part" "$url"
+	fi
+	if ! echo "${want}  ${file}.part" | sha256sum -c - >/dev/null; then
+		echo "build.sh: ${file} does not hash to ${want}" >&2
+		echo "build.sh: got $(sha256sum "${file}.part" | cut -d' ' -f1)" >&2
+		exit 3
+	fi
+	mv "${file}.part" "$file"
+}
+
 echo ">> zlib ${ZLIB_VERSION} (static)"
-curl -fsSL -o zlib.tar.gz "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+fetch_verified zlib.tar.gz "$ZLIB_URL" "$ZLIB_SHA256"
 tar -xzf zlib.tar.gz
 (
 	cd "zlib-${ZLIB_VERSION}"
@@ -103,7 +191,7 @@ tar -xzf zlib.tar.gz
 )
 
 echo ">> openssl ${OPENSSL_VERSION} (static, no-shared)"
-curl -fsSL -o openssl.tar.gz "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz"
+fetch_verified openssl.tar.gz "$OPENSSL_URL" "$OPENSSL_SHA256"
 tar -xzf openssl.tar.gz
 (
 	cd "openssl-${OPENSSL_VERSION}"
@@ -113,8 +201,7 @@ tar -xzf openssl.tar.gz
 )
 
 echo ">> fetching ${SRC}"
-curl -fsSL -o nginx.tar.gz "$SRC"
-echo "${SRC_SHA256}  nginx.tar.gz" | sha256sum -c -
+fetch_verified nginx.tar.gz "$SRC" "$SRC_SHA256"
 tar -xzf nginx.tar.gz
 
 cd "nginx-${VERSION}"
@@ -199,13 +286,35 @@ case "$ldd_out" in
 	;;
 esac
 echo ">> self-check: nginx -t"
+# -p is the stage, so nginx opens <stage>/logs/error.log before it has read a
+# single directive and warns when the directory is missing. The warning is not a
+# failure, but a warning in an acceptance log is a question someone has to answer
+# later; creating the directory costs one line. It is not shipped in the tarball.
+mkdir -p "$stage/logs"
 "$stage/sbin/nginx" -t -c "$stage/test.conf" -p "$stage"
 
+# What this binary actually is, in its own words. The release publishes this
+# verbatim: "it has http_v2 and stream" has to be checkable by whoever installs
+# it, not a claim in a changelog. The three modules below are the ones the
+# manifest's capabilities promise, so a build that lost one fails here instead
+# of at the customer's first `listen 443 ssl`.
+echo ">> self-check: nginx -V"
 mkdir -p /w/dist
+"$stage/sbin/nginx" -V >"/w/dist/nginx-V-${ARCH}.txt" 2>&1
+cat "/w/dist/nginx-V-${ARCH}.txt"
+for mod in --with-http_v2_module --with-stream --with-http_realip_module; do
+	if ! grep -q -- "$mod" "/w/dist/nginx-V-${ARCH}.txt"; then
+		echo "build.sh: nginx -V does not mention ${mod}" >&2
+		exit 5
+	fi
+done
+
 name="nginx-${VERSION}-${BUILD}-linux-${ARCH}.tar.gz"
 tar -C "$stage" -czf "/w/dist/$name" --owner=0 --group=0 --numeric-owner \
 	sbin/nginx conf/nginx.conf conf/mime.types test.conf manifest.json
-(cd /w/dist && sha256sum "$name" >SHA256SUMS)
+# One line per architecture: a local run builds both in the same directory and
+# must end up with a checksum file that covers both.
+(cd /w/dist && { grep -v "  ${name}\$" SHA256SUMS 2>/dev/null || true; sha256sum "$name"; } >SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS)
 echo ">> artefact: /w/dist/$name"
 ls -l "/w/dist/$name"
 cat /w/dist/SHA256SUMS
