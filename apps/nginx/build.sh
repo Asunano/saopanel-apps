@@ -122,6 +122,14 @@ if [ -n "${APK_MIRROR:-}" ]; then
 fi
 apk add --no-cache build-base pcre2-dev linux-headers curl tar coreutils perl >/dev/null
 
+# The binary is compiled with --user=saopanel --group=saopanel (see the configure
+# step), and nginx resolves that name at config-test time whenever it runs as
+# root. This self-check runs as root, so the account has to exist here too — with
+# the same name the panel's installer creates on the target. It exists only in
+# this throwaway container; nothing about it ships.
+addgroup -S saopanel 2>/dev/null || true
+adduser -S -D -H -G saopanel saopanel 2>/dev/null || true
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -205,8 +213,27 @@ fetch_verified nginx.tar.gz "$SRC" "$SRC_SHA256"
 tar -xzf nginx.tar.gz
 
 cd "nginx-${VERSION}"
+# --error-log-path is the one path nginx opens before it has read a directive, at
+# the default <prefix>/logs/error.log. The panel starts nginx with -p <version
+# dir>, which belongs to root and is never written to, so every start logged
+# "[alert] could not open error log file" into the journal and then used the log
+# the managed conf names. Compiling the same path in means the first open
+# succeeds, and a fresh install's journal shows the service starting, not
+# complaining. The directory is created and chowned by install.sh; the managed
+# conf names the same file, so both agree.
+# --user/--group: nginx's compiled default worker account is "nobody", and it
+# resolves that name at config-test time whenever it is run as root — which is
+# how the agent runs `nginx -t`. Debian has the user "nobody" but the *group*
+# "nogroup", so on a clean Debian with the panel's own nginx every site apply
+# failed with `getgrnam("nobody") failed`. Naming the account the unit already
+# runs as removes the distro dependency: the installer creates saopanel:saopanel
+# before any app can be installed, and a non-root master ignores the directive
+# without a warning (unlike writing `user` into the config, which warns).
 run_step "nginx configure" "$work/log/configure.log" ./configure \
 	--prefix=/apps/nginx \
+	--user=saopanel \
+	--group=saopanel \
+	--error-log-path=/var/log/saopanel/nginx-error.log \
 	--with-threads \
 	--with-http_ssl_module \
 	--with-http_v2_module \
@@ -286,11 +313,9 @@ case "$ldd_out" in
 	;;
 esac
 echo ">> self-check: nginx -t"
-# -p is the stage, so nginx opens <stage>/logs/error.log before it has read a
-# single directive and warns when the directory is missing. The warning is not a
-# failure, but a warning in an acceptance log is a question someone has to answer
-# later; creating the directory costs one line. It is not shipped in the tarball.
-mkdir -p "$stage/logs"
+# The compiled-in error log is /var/log/saopanel/nginx-error.log; create it here
+# too so the build's own -t does not open a path that does not exist yet.
+mkdir -p /var/log/saopanel
 "$stage/sbin/nginx" -t -c "$stage/test.conf" -p "$stage"
 
 # What this binary actually is, in its own words. The release publishes this
