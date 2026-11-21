@@ -8,9 +8,9 @@ service itself.
 
 ## Naming
 
-    tag      nginx-v1.31.9-sao-r1
-    artefact nginx-1.31.9-sao-r1-linux-amd64.tar.gz
-             nginx-1.31.9-sao-r1-linux-arm64.tar.gz
+    tag      nginx-v1.31.9-sao-r2
+    artefact nginx-1.31.9-sao-r2-linux-amd64.tar.gz
+             nginx-1.31.9-sao-r2-linux-arm64.tar.gz
     build    sao-r<n> — bump r for every rebuild of the same upstream version,
              never reuse one; a new upstream version restarts at r1.
 
@@ -54,5 +54,6 @@ tag), so a mirror is only a different route to the same bytes.
     sbin/nginx      static binary (checked with file and ldd before publishing)
     conf/nginx.conf managed config, always passed with -c
     conf/mime.types
+    conf/fastcgi_params  standard nginx fastcgi request parameters
     test.conf       the self-check configuration
     manifest.json   id/version/build/arch of this build

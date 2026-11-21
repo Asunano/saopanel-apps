@@ -16,6 +16,7 @@
 #   sbin/nginx           static binary (musl, no shared objects)
 #   conf/nginx.conf      managed config (the panel always passes -c here)
 #   conf/mime.types
+#   conf/fastcgi_params  the standard nginx fastcgi request parameters
 #   test.conf            used by this script's own -t check
 #   manifest.json        what this build reports about itself
 #
@@ -45,7 +46,7 @@ fi
 set -o pipefail
 
 VERSION=${NGINX_VERSION:-1.31.9}
-BUILD=${BUILD:-sao-r1}
+BUILD=${BUILD:-sao-r2}
 ARCH=${TARGETARCH:-$(uname -m)}
 SRC="https://nginx.org/download/nginx-${VERSION}.tar.gz"
 # Measured locally with sha256sum on the release tarball (1,388,470 bytes), never
@@ -254,7 +255,12 @@ stage="$work/stage"
 mkdir -p "$stage/sbin" "$stage/conf"
 cp "$work/root/apps/nginx/sbin/nginx" "$stage/sbin/nginx"
 cp /w/apps/nginx/mime.types "$stage/conf/mime.types"
+cp conf/fastcgi_params "$stage/conf/fastcgi_params"
 cp /w/apps/nginx/test.conf "$stage/test.conf"
+[ -s "$stage/conf/fastcgi_params" ] || {
+	echo "build.sh: the staged package has no conf/fastcgi_params" >&2
+	exit 3
+}
 # The managed config. No `user` directive: the unit runs nginx as saopanel and
 # grants CAP_NET_BIND_SERVICE, so nginx never has privileges to drop and never
 # needs the account named twice. daemon off keeps it in the foreground, which is
@@ -336,7 +342,7 @@ done
 
 name="nginx-${VERSION}-${BUILD}-linux-${ARCH}.tar.gz"
 tar -C "$stage" -czf "/w/dist/$name" --owner=0 --group=0 --numeric-owner \
-	sbin/nginx conf/nginx.conf conf/mime.types test.conf manifest.json
+	sbin/nginx conf/nginx.conf conf/mime.types conf/fastcgi_params test.conf manifest.json
 # One line per architecture: a local run builds both in the same directory and
 # must end up with a checksum file that covers both.
 (cd /w/dist && { grep -v "  ${name}\$" SHA256SUMS 2>/dev/null || true; sha256sum "$name"; } >SHA256SUMS.new && mv SHA256SUMS.new SHA256SUMS)

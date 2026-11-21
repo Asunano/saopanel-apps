@@ -17,7 +17,7 @@
 #   APP_ORG     GitHub organisation/user that owns the apps repository. Required:
 #               the manifest's URLs have to name somewhere the files really are.
 #   APP_REPO    repository name, default saopanel-apps.
-#   APP_VERSION default 1.31.9, BUILD default sao-r1 (must match build.sh).
+#   APP_VERSION default 1.31.9, BUILD default sao-r2 (must match build.sh).
 #   ARCHES      default "amd64 arm64".
 #   DL_BASE     optional CDN base (e.g. https://dl.example.com). When set, a
 #               mirror is emitted for it; when empty, no mirror is invented.
@@ -32,7 +32,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 APP_VERSION=${APP_VERSION:-1.31.9}
-BUILD=${BUILD:-sao-r1}
+BUILD=${BUILD:-sao-r2}
 APP_REPO=${APP_REPO:-saopanel-apps}
 ARCHES=${ARCHES:-"amd64 arm64"}
 DL_BASE=${DL_BASE:-}
