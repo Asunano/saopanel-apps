@@ -1,9 +1,10 @@
 name: build-nginx
 
-# Two architectures, one script. The native arm64 runner is used when the repo
-# is public; qemu is installed as the fallback so a private repo still builds
-# the same bytes (slower, but the artefact is identical — build.sh pins every
-# source by sha256 and the base image by digest).
+# Two architectures, one script. Both run on x86 runners: the arm64 build is
+# cross-built under qemu, which is slower than a native arm runner but produces
+# the same bytes — build.sh pins every source by sha256 and the base image by
+# digest, so the toolchain identity does not depend on the host. A private
+# repository has no arm64 runner anyway unless one is paid for.
 on:
   push:
     tags: ['nginx-v*']
@@ -21,7 +22,7 @@ jobs:
           - arch: amd64
             runner: ubuntu-24.04
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +31,6 @@ jobs:
       # already native and registers binfmt where it is not.
       - uses: docker/setup-qemu-action@v3
         if: matrix.arch == 'arm64'
-
       # The digest is resolved here, not committed by hand: a wrong constant is
       # a build that silently uses a different toolchain. The daocloud mirror is
       # the fallback because registry-1.docker.io is unreachable from some
@@ -115,7 +115,10 @@ jobs:
             dist/nginx-V-*.txt
 
       # Mirror to R2 with the same names, so a blocked GitHub still installs.
+      # Opt-in: a repository that has not defined the R2_* secrets skips this
+      # step rather than painting the run red after the release is already out.
       - name: sync to R2
+        if: vars.R2_ENABLED == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
