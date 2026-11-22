@@ -13,7 +13,13 @@ id: nginx
 name: Nginx
 version: <version>
 build: <build>
-runtime: systemd
+runtime:
+  kind: systemd
+  executable: sbin/nginx
+  args: ["-c", "{prefix}/conf/nginx.conf", "-p", "{prefix}"]
+  test_args: ["-t", "-c", "{prefix}/conf/nginx.conf", "-p", "{prefix}"]
+  reload_signal: HUP
+  capabilities: [net_bind_service]
 summary: 静态编译的 nginx，由面板托管配置与站点
 homepage: https://github.com/<org>/saopanel-apps
 install:
