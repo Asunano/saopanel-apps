@@ -8,9 +8,9 @@ service itself.
 
 ## Naming
 
-    tag      nginx-v1.31.9-sao-r2
-    artefact nginx-1.31.9-sao-r2-linux-amd64.tar.gz
-             nginx-1.31.9-sao-r2-linux-arm64.tar.gz
+    tag      nginx-v1.31.9-sao-r3
+    artefact nginx-1.31.9-sao-r3-linux-amd64.tar.gz
+             nginx-1.31.9-sao-r3-linux-arm64.tar.gz
     build    sao-r<n> — bump r for every rebuild of the same upstream version,
              never reuse one; a new upstream version restarts at r1.
 

@@ -46,7 +46,7 @@ fi
 set -o pipefail
 
 VERSION=${NGINX_VERSION:-1.31.9}
-BUILD=${BUILD:-sao-r2}
+BUILD=${BUILD:-sao-r3}
 ARCH=${TARGETARCH:-$(uname -m)}
 SRC="https://nginx.org/download/nginx-${VERSION}.tar.gz"
 # Measured locally with sha256sum on the release tarball (1,388,470 bytes), never
