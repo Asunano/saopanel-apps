@@ -36,7 +36,7 @@ services:
     ports: [80, 443]
 uninstall:
   remove:
-    - /var/lib/saopanel/apps/nginx/<version>-<build>
+    - "{prefix}"
     - /etc/systemd/system/saopanel-nginx.service
   keep:
     - /var/lib/saopanel/site-conf
