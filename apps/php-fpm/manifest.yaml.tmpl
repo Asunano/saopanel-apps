@@ -1,0 +1,33 @@
+# Template for the published PHP 8.3 FPM manifest. `apps/php-fpm/release.sh`
+# fills every <…> from the tarballs it built and measured.
+id: php-fpm
+name: PHP-FPM 8.3
+version: <version>
+build: <build>
+runtime:
+  kind: systemd
+  executable: sbin/php-fpm
+  args: ["-F", "-y", "{prefix}/etc/php83/php-fpm.conf"]
+  test_args: ["-t", "-y", "{prefix}/etc/php83/php-fpm.conf"]
+  reload_signal: USR2
+  runtime_directory: saopanel/php
+summary: Alpine 3.20 rootfs 上的 PHP 8.3 FPM，共享 saopanel pool
+homepage: https://github.com/<org>/saopanel-apps
+install:
+  type: tarball
+  artefacts:
+<artefacts>
+  mirrors:
+<mirrors>
+capabilities: [php83_fpm, php83_opcache, php83_sqlite]
+services:
+  - unit: saopanel-php-fpm
+    ports: []
+uninstall:
+  remove:
+    - "{prefix}"
+    - /etc/systemd/system/saopanel-php-fpm.service
+  keep:
+    - /www
+    - /var/lib/saopanel/site-conf
+    - /var/lib/saopanel/certs
