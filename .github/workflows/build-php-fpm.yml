@@ -1,0 +1,90 @@
+name: build-php-fpm
+
+# Build both architectures from the same pinned Alpine rootfs and publish the
+# manifest whose checksums are measured from those tarballs.
+on:
+  push:
+    tags: ['php-fpm-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'arm64'
+
+      - name: resolve alpine digest
+        run: |
+          set -eu
+          D="$(docker buildx imagetools inspect alpine:3.20 --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+          if [ -z "$D" ]; then
+            D="$(skopeo inspect --format '{{.Digest}}' docker://docker.m.daocloud.io/library/alpine:3.20 2>/dev/null || true)"
+          fi
+          [ -n "$D" ] || { echo "could not resolve alpine digest" >&2; exit 1; }
+          echo "ALPINE_IMAGE=alpine:3.20@$D" >> "$GITHUB_ENV"
+
+      - name: build in pinned Alpine
+        run: |
+          chmod +x apps/php-fpm/build.sh
+          TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r1} \
+            sh apps/php-fpm/build.sh
+
+      - name: verify artefact
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          tar -tzf php-fpm-*-linux-${{ matrix.arch }}.tar.gz | grep -E '^(sbin/php-fpm|rootfs/usr/sbin/php-fpm83|etc/php83/php-fpm.conf)$'
+          cat "php-fpm-version-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: php-fpm-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: render manifest
+        env:
+          APP_ORG: ${{ github.repository_owner }}
+        run: |
+          chmod +x apps/php-fpm/release.sh
+          bash apps/php-fpm/release.sh --from-existing
+
+      - name: check the manifest is complete
+        run: |
+          test "$(grep -c 'sha256: "' dist/apps/php-fpm.yaml)" -eq 2
+          test "$(grep -c 'arch: ' dist/apps/php-fpm.yaml)" -eq 2
+          grep -q 'runtime_directory: saopanel/php' dist/apps/php-fpm.yaml
+          ! grep -nE '<[a-z]+>' dist/apps/php-fpm.yaml
+          cat dist/apps/php-fpm.yaml
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/php-fpm-*-linux-*.tar.gz
+            dist/php-fpm-version-*.txt
+            dist/SHA256SUMS
+            dist/apps/php-fpm.yaml
