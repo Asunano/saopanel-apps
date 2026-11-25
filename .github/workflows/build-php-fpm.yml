@@ -40,7 +40,7 @@ jobs:
       - name: build in pinned Alpine
         run: |
           chmod +x apps/php-fpm/build.sh
-          TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r1} \
+          TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r2} \
             sh apps/php-fpm/build.sh
 
       - name: verify artefact

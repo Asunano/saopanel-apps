@@ -8,7 +8,7 @@
 # be 0660 saopanel:saopanel without a UID translation layer.
 set -eu
 
-BUILD=${BUILD:-sao-r1}
+BUILD=${BUILD:-sao-r2}
 ARCH=${TARGETARCH:-$(uname -m)}
 ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc}
 
@@ -34,7 +34,9 @@ esac
 echo ">> Alpine $(cat /etc/alpine-release), PHP-FPM 8.3, ${ARCH}"
 apk add --no-cache \
 	php83 php83-fpm php83-opcache php83-curl php83-mbstring php83-xml \
-	php83-sqlite3 php83-zip php83-gd php83-intl >/dev/null
+	php83-sqlite3 php83-zip php83-gd php83-intl php83-mysqli \
+	php83-pdo_mysql php83-sodium php83-session php83-ctype php83-iconv \
+	php83-openssl php83-simplexml php83-dom php83-fileinfo php83-tokenizer >/dev/null
 
 VERSION=$(php83 -r 'echo PHP_VERSION;')
 case "$VERSION" in
@@ -44,6 +46,14 @@ case "$VERSION" in
 	exit 3
 	;;
 esac
+
+for ext in mysqli pdo_mysql mbstring zip gd sodium curl xml intl session ctype \
+	iconv openssl simplexml dom fileinfo tokenizer; do
+	php83 -m | grep -qix "$ext" || {
+		echo "build.sh: PHP extension $ext is missing" >&2
+		exit 3
+	}
+done
 
 # The build container needs the account only for php-fpm -t. The target host
 # creates the same account in install.sh; nothing about it ships in the tar.
@@ -132,7 +142,7 @@ php_admin_flag[log_errors] = on
 CONF
 
 cat >"$stage/manifest.json" <<JSON
-{"id":"php-fpm","version":"${VERSION}","build":"${BUILD}","arch":"${ARCH}","runtime":"alpine-rootfs","extensions":["opcache","curl","mbstring","xml","sqlite3","zip","gd","intl"]}
+{"id":"php-fpm","version":"${VERSION}","build":"${BUILD}","arch":"${ARCH}","runtime":"alpine-rootfs","extensions":["opcache","curl","mbstring","xml","sqlite3","zip","gd","intl","mysqli","pdo_mysql","sodium"]}
 JSON
 
 # The package's own config test runs exactly as the unit will: the wrapper,
