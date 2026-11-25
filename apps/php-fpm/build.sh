@@ -8,7 +8,7 @@
 # be 0660 saopanel:saopanel without a UID translation layer.
 set -eu
 
-BUILD=${BUILD:-sao-r2}
+BUILD=${BUILD:-sao-r3}
 ARCH=${TARGETARCH:-$(uname -m)}
 ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc}
 
@@ -79,13 +79,10 @@ cp -aL /usr/lib/php83/. "$stage/rootfs/usr/lib/php83/"
 	exit 3
 }
 
-prefix=/var/lib/saopanel/apps/php-fpm/current
-
 # Configuration is generated here, not copied from the image, so every path
 # is explicit and the package does not depend on Alpine's /etc layout.
 cat >"$stage/etc/php83/php.ini" <<INI
 [PHP]
-extension_dir = "$prefix/rootfs/usr/lib/php83/modules"
 expose_php = Off
 memory_limit = 128M
 upload_max_filesize = 16M
@@ -113,7 +110,8 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 export LD_LIBRARY_PATH="$ROOT/rootfs/lib:$ROOT/rootfs/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PHPRC="$ROOT/etc/php83"
 export PHP_INI_SCAN_DIR="$ROOT/etc/php83/conf.d"
-exec "$ROOT/rootfs/lib/MUSL_LOADER" "$ROOT/rootfs/usr/sbin/php-fpm83" "$@"
+exec "$ROOT/rootfs/lib/MUSL_LOADER" "$ROOT/rootfs/usr/sbin/php-fpm83" \
+	-d "extension_dir=$ROOT/rootfs/usr/lib/php83/modules" "$@"
 WRAP
 sed -i "s|MUSL_LOADER|$MUSL|" "$stage/sbin/php-fpm"
 chmod 0755 "$stage/sbin/php-fpm"

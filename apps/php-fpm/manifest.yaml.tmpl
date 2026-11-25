@@ -11,6 +11,7 @@ runtime:
   test_args: ["-t", "-y", "{prefix}/etc/php83/php-fpm.conf"]
   reload_signal: USR2
   runtime_directory: saopanel/php
+  log_dir: /var/log/saopanel
 summary: Alpine 3.20 rootfs 上的 PHP 8.3 FPM，共享 saopanel pool
 homepage: https://github.com/<org>/saopanel-apps
 install:

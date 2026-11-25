@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
 
-BUILD=${BUILD:-sao-r2}
+BUILD=${BUILD:-sao-r3}
 APP_REPO=${APP_REPO:-saopanel-apps}
 ARCHES=${ARCHES:-"amd64 arm64"}
 DL_BASE=${DL_BASE:-}
