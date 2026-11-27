@@ -183,11 +183,14 @@ wait_for_socket() {
 			cat "$log" >&2
 			exit 3
 		fi
-		if [ "$i" -ge 300 ]; then
-			echo "build.sh: the bundled server did not open its socket in 300s:" >&2
+		if [ "$i" -ge 900 ]; then
+			echo "build.sh: the bundled server did not open its socket in 900s:" >&2
 			cat "$log" >&2
 			kill "$server" 2>/dev/null || true
 			exit 3
+		fi
+		if [ "$((i % 60))" -eq 0 ]; then
+			echo "build.sh: still waiting for $sock (${i}s)" >&2
 		fi
 		sleep 1
 	done
