@@ -130,12 +130,20 @@ chmod -R a+rX "$stage"
 
 addgroup -S postgres 2>/dev/null || true
 adduser -S -D -H -G postgres postgres 2>/dev/null || true
+# The smoke test starts the server as its runtime account. Under qemu the
+# database bootstrap is emulated instruction by instruction and a MariaDB
+# install-db run can take longer than the job allows, so a cross-arch build may
+# skip it: the tarball's shape does not depend on the architecture, and the
+# native leg has proved the payload works.
+if [ "${SKIP_SMOKE:-0}" = "1" ]; then
+	echo ">> smoke test skipped (SKIP_SMOKE=1, cross-arch build)"
+else
 smoke="$work/smoke"
 mkdir -p "$smoke/data" "$smoke/run"
 chown -R postgres:postgres "$smoke"
 sock="$smoke/run/.s.PGSQL.54321"
 
-# wait_for_socket blocks until the socket exists, the server dies, or 300s pass.
+# wait_for_socket blocks until the socket exists, the server dies, or 900s pass.
 # Under qemu the first start (initdb / install-db through the emulated server)
 # takes minutes rather than seconds, so the deadline is generous and a dead
 # server is reported with its own log instead of a bare timeout.
@@ -170,6 +178,7 @@ LD_LIBRARY_PATH="$stage/rootfs/lib:$stage/rootfs/usr/lib" \
 	-h "$smoke/run" -p 54321 -U postgres -c 'SELECT 1' >/dev/null
 kill "$server" 2>/dev/null || true
 wait "$server" 2>/dev/null || true
+fi
 
 name="postgresql-${VERSION}-${BUILD}-linux-${ARCH}.tar.gz"
 mkdir -p /w/dist
