@@ -6,7 +6,7 @@ version: <version>
 build: <build>
 kind: webapp
 web:
-  root: /www/phpmyadmin
+  root: /opt/saopanel/www/phpmyadmin
   auth: basic
   tls: true
   hsts: false
@@ -25,7 +25,7 @@ uninstall:
   remove:
     - "{prefix}"
   keep:
-    - /www
-    - /var/lib/saopanel/site-conf
-    - /var/lib/saopanel/certs
+    - /opt/saopanel/www
+    - /opt/saopanel/state/site-conf
+    - /opt/saopanel/state/certs
 

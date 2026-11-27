@@ -115,7 +115,7 @@ chmod 0755 "$stage/sbin/php-fpm"
 
 cat >"$stage/etc/php83/php-fpm.conf" <<'CONF'
 [global]
-error_log = /var/log/saopanel/php-fpm83-error.log
+error_log = /opt/saopanel/log/apps/php-fpm83-error.log
 daemonize = no
 
 ; The socket belongs to whichever account runs the master process, here www-php;
@@ -142,9 +142,9 @@ JSON
 
 # The package's own config test runs exactly as the unit will: the wrapper,
 # the bundled interpreter and the shared socket directory.
-mkdir -p /var/lib/saopanel/apps/php-fpm
-ln -sfn "$stage" /var/lib/saopanel/apps/php-fpm/current
-mkdir -p /var/run/saopanel/php /var/log/saopanel
+mkdir -p /opt/saopanel/apps/php-fpm
+ln -sfn "$stage" /opt/saopanel/apps/php-fpm/current
+mkdir -p /run/saopanel/php /opt/saopanel/log/apps
 # -R (--allow-to-run-as-root) is for this test only: the builder runs as root,
 # and a root master refuses a pool without a `user` directive. On the target the
 # unit runs as www-php, which is exactly why the pool sets no user.
@@ -152,7 +152,7 @@ mkdir -p /var/run/saopanel/php /var/log/saopanel
 	echo "build.sh: bundled php-fpm rejected its configuration" >&2
 	exit 3
 }
-rm -f /var/lib/saopanel/apps/php-fpm/current
+rm -f /opt/saopanel/apps/php-fpm/current
 
 name="php-fpm-${VERSION}-${BUILD}-linux-${ARCH}.tar.gz"
 mkdir -p /w/dist

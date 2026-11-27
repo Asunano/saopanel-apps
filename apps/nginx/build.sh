@@ -46,7 +46,7 @@ fi
 set -o pipefail
 
 VERSION=${NGINX_VERSION:-1.31.9}
-BUILD=${BUILD:-sao-r3}
+BUILD=${BUILD:-sao-r4}
 ARCH=${TARGETARCH:-$(uname -m)}
 SRC="https://nginx.org/download/nginx-${VERSION}.tar.gz"
 # Measured locally with sha256sum on the release tarball (1,388,470 bytes), never
@@ -234,7 +234,7 @@ run_step "nginx configure" "$work/log/configure.log" ./configure \
 	--prefix=/apps/nginx \
 	--user=saopanel \
 	--group=saopanel \
-	--error-log-path=/var/log/saopanel/nginx-error.log \
+	--error-log-path=/opt/saopanel/log/apps/nginx-error.log \
 	--with-threads \
 	--with-http_ssl_module \
 	--with-http_v2_module \
@@ -274,7 +274,7 @@ cat >"$stage/conf/nginx.conf" <<'CONF'
 daemon off;
 worker_processes auto;
 pid run/nginx.pid;
-error_log /var/log/saopanel/nginx-error.log warn;
+error_log /opt/saopanel/log/apps/nginx-error.log warn;
 events { worker_connections 1024; }
 http {
   include mime.types;
@@ -285,7 +285,7 @@ http {
   fastcgi_temp_path tmp/fastcgi;
   uwsgi_temp_path tmp/uwsgi;
   scgi_temp_path tmp/scgi;
-  include /var/lib/saopanel/site-conf/*.conf;
+  include /opt/saopanel/state/site-conf/*.conf;
 
   # A fresh install has no site config yet, so the binary has to answer for
   # itself or the panel's probe would fail on a machine that is working.
@@ -319,9 +319,9 @@ case "$ldd_out" in
 	;;
 esac
 echo ">> self-check: nginx -t"
-# The compiled-in error log is /var/log/saopanel/nginx-error.log; create it here
+# The compiled-in error log is /opt/saopanel/log/apps/nginx-error.log; create it here
 # too so the build's own -t does not open a path that does not exist yet.
-mkdir -p /var/log/saopanel
+mkdir -p /opt/saopanel/log/apps
 "$stage/sbin/nginx" -t -c "$stage/test.conf" -p "$stage"
 
 # What this binary actually is, in its own words. The release publishes this
