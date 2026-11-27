@@ -1,0 +1,10 @@
+# One line ending for every package script and manifest. An autocrlf checkout
+# once turned 13 files here into a no-op diff; see the panel repo's file of the
+# same name for the full note.
+* text=auto eol=lf
+
+# Bytes, not lines.
+*.tar.gz binary
+*.gz binary
+*.png binary
+*.jpg binary
