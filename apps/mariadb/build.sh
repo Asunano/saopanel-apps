@@ -58,6 +58,9 @@ echo ">> MariaDB ${VERSION}"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# mktemp gives 0700 root: the smoke test below runs as the runtime account, which
+# could not even reach the staged binary through that directory.
+chmod 0755 "$work"
 stage="$work/stage"
 mkdir -p "$stage/rootfs/lib" "$stage/rootfs/usr/lib" "$stage/sbin"
 
@@ -140,6 +143,10 @@ JSON
 # Smoke test in the builder, as the account the unit will use: a root-run
 # mariadbd refuses to start, and a package that cannot initialise its own data
 # directory has no business being published.
+# The staged tree is read by the runtime account during the smoke test; the
+# published tarball keeps its own modes.
+chmod -R a+rX "$stage"
+
 addgroup -S mysql 2>/dev/null || true
 adduser -S -D -H -G mysql mysql 2>/dev/null || true
 smoke="$work/smoke"

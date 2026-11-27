@@ -49,10 +49,12 @@ jobs:
           echo "alpine@$D"
           echo "ALPINE_IMAGE=alpine:3.20@$D" >> "$GITHUB_ENV"
 
-      - name: build in pinned Alpine
+      # phpMyAdmin ships upstream tarballs: no compiler, no Alpine. The script
+      # fetches, verifies against the published sha256 and stages the payload.
+      - name: build payload
         run: |
           chmod +x apps/phpmyadmin/build.sh
-          TARGETARCH=${{ matrix.arch }} \
+          TARGETARCH=${{ matrix.arch }} DIST_DIR="$PWD/dist" \
             sh apps/phpmyadmin/build.sh
 
       - name: verify artefact

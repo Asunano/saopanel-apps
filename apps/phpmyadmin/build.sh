@@ -7,7 +7,15 @@ set -eu
 VERSION=${VERSION:-5.2.2}
 BUILD=${BUILD:-sao-r1}
 ARCH=${TARGETARCH:-$(uname -m)}
-DIST_DIR=${DIST_DIR:-/w/dist}
+# /w is the container mount point; a build on a bare runner has no such path, so
+# the default follows the checkout instead of a directory only the container has.
+if [ -n "${DIST_DIR:-}" ]; then
+	:
+elif [ -d /w ]; then
+	DIST_DIR=/w/dist
+else
+	DIST_DIR=$(pwd)/dist
+fi
 case "$ARCH" in
 amd64 | arm64) ;;
 *)
