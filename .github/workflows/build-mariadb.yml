@@ -1,0 +1,133 @@
+name: build-mariadb
+
+# Two architectures, one script. Both run on x86 runners: the arm64 build is
+# cross-built under qemu, which is slower than a native arm runner but produces
+# the same bytes — build.sh pins every source by sha256 and the base image by
+# digest, so the toolchain identity does not depend on the host. A private
+# repository has no arm64 runner anyway unless one is paid for.
+on:
+  push:
+    tags: ['mariadb-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A private repo has no arm64 runner; this is a no-op where the runner is
+      # already native and registers binfmt where it is not.
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'arm64'
+      # The digest is resolved here, not committed by hand: a wrong constant is
+      # a build that silently uses a different toolchain. The daocloud mirror is
+      # the fallback because registry-1.docker.io is unreachable from some
+      # networks (including the one this repo was written on).
+      - name: resolve alpine digest
+        run: |
+          set -eu
+          D="$(docker buildx imagetools inspect alpine:3.20 --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+          if [ -z "$D" ]; then
+            D="$(skopeo inspect --format '{{.Digest}}' docker://docker.m.daocloud.io/library/alpine:3.20 2>/dev/null || true)"
+          fi
+          if [ -z "$D" ]; then
+            echo "could not resolve a digest for alpine:3.20; refusing to build loose" >&2
+            exit 1
+          fi
+          echo "alpine@$D"
+          echo "ALPINE_IMAGE=alpine:3.20@$D" >> "$GITHUB_ENV"
+
+      - name: build in pinned Alpine
+        run: |
+          chmod +x apps/mariadb/build.sh
+          TARGETARCH=${{ matrix.arch }} \
+            sh apps/mariadb/build.sh
+
+      - name: verify artefact
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          tar -tzf mariadb-*.tar.gz | head
+          # The binary proves what it is in its own words: build.sh has already
+          # refused the build if `file` did not say static, if ldd resolved a
+          # library, or if -t failed, and it fails here if this text lost one of
+          # the modules the manifest promises.
+          cat mariadb-version-${{ matrix.arch }}.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mariadb-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The manifest is rendered from the tarballs that were just built, so its
+      # sha256 and size are measured, never typed. release.sh refuses to publish
+      # with a missing architecture or a leftover placeholder.
+      - name: render manifest
+        env:
+          APP_ORG: ${{ github.repository_owner }}
+        run: |
+          chmod +x apps/release.sh
+          chmod +x apps/mariadb/build.sh
+          apps/mariadb/release.sh --from-existing
+
+      # The final judge is the panel's own loader (saopanel/internal/appstore/
+      # manifest), and it runs in the panel repo when the manifests are packaged
+      # into a release: `make release` refuses a manifest the panel cannot read.
+      # Here the checks that need no panel source are the ones that catch the
+      # mistakes this workflow can actually make.
+      - name: check the manifest is complete
+        run: |
+          echo "manifest written: $(wc -l < dist/apps/mariadb.yaml) lines"
+          test "$(grep -c 'sha256: "' dist/apps/mariadb.yaml)" -eq 2
+          test "$(grep -c 'arch: ' dist/apps/mariadb.yaml)" -eq 2
+          ! grep -nE '<[a-z]+>' dist/apps/mariadb.yaml
+          cat dist/apps/mariadb.yaml
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/mariadb-*-linux-*.tar.gz
+            dist/SHA256SUMS
+            dist/apps/mariadb.yaml
+            dist/mariadb-version-*.txt
+
+      # Mirror to R2 with the same names, so a blocked GitHub still installs.
+      # Opt-in: a repository that has not defined the R2_* secrets skips this
+      # step rather than painting the run red after the release is already out.
+      - name: sync to R2
+        if: vars.R2_ENABLED == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          command -v aws >/dev/null || pipx install awscli >/dev/null
+          for f in dist/nginx-*-linux-*.tar.gz dist/SHA256SUMS dist/apps/mariadb.yaml; do
+            aws s3 cp "$f" "s3://$R2_BUCKET/apps/mariadb/${GITHUB_REF_NAME#mariadb-v}/$(basename "$f")" \
+              --endpoint-url "$R2_ENDPOINT"
+          done

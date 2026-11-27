@@ -52,7 +52,7 @@ jobs:
       - name: build in pinned Alpine
         run: |
           chmod +x apps/nginx/build.sh
-          TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r3} \
+          TARGETARCH=${{ matrix.arch }} BUILD=${BUILD:-sao-r4} \
             sh apps/nginx/build.sh
 
       - name: verify artefact

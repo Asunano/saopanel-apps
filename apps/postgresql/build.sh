@@ -31,7 +31,7 @@ arm64) MUSL=ld-musl-aarch64.so.1 ;;
 esac
 
 echo ">> Alpine $(cat /etc/alpine-release), PostgreSQL, ${ARCH}"
-apk add --no-cache postgresql postgresql-client >/dev/null
+apk add --no-cache postgresql16 postgresql16-client >/dev/null
 
 POSTGRES=$(command -v postgres || find /usr/libexec /usr -type f -name postgres 2>/dev/null | head -1)
 PGDIR=$(dirname "$POSTGRES")
