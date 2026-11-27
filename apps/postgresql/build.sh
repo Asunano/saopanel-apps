@@ -16,8 +16,12 @@ if [ ! -f /etc/alpine-release ]; then
 		echo "build.sh: docker is required outside Alpine" >&2
 		exit 2
 	}
+	# SKIP_SMOKE travels into the container: the switch is read inside it, and a
+	# cross-arch leg that only sets it outside would wait for a socket that the
+	# emulated server needs minutes to create.
 	exec docker run --rm --platform "linux/${ARCH}" \
 		-e BUILD="$BUILD" -e TARGETARCH="$ARCH" -e ALPINE_IMAGE="$ALPINE_IMAGE" \
+		-e SKIP_SMOKE="${SKIP_SMOKE:-0}" \
 		-v "$PWD:/w" -w /w "$ALPINE_IMAGE" /bin/sh ./apps/postgresql/build.sh
 fi
 
