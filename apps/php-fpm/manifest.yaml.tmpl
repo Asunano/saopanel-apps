@@ -6,6 +6,7 @@ version: <version>
 build: <build>
 runtime:
   kind: systemd
+  user: www-php
   executable: sbin/php-fpm
   args: ["-F", "-y", "{prefix}/etc/php83/php-fpm.conf"]
   test_args: ["-t", "-y", "{prefix}/etc/php83/php-fpm.conf"]

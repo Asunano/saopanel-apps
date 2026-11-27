@@ -3,12 +3,14 @@
 #
 # The package is not chrooted: the php-fpm executable is patched to use the
 # bundled musl interpreter, and a small wrapper gives it the bundled library
-# path. That keeps the systemd unit running as the host's `saopanel` account,
-# which is also the account nginx workers use, so the shared Unix socket can
-# be 0660 saopanel:saopanel without a UID translation layer.
+# path. The unit runs as the host's `www-php` account (manifest runtime.user),
+# not as `saopanel`: this process executes site code, and the panel's account
+# owns the panel database, the AI master key and the node token. The socket is
+# owned by whoever runs the master; nginx (saopanel) connects through its
+# www-php group membership.
 set -eu
 
-BUILD=${BUILD:-sao-r3}
+BUILD=${BUILD:-sao-r4}
 ARCH=${TARGETARCH:-$(uname -m)}
 ALPINE_IMAGE=${ALPINE_IMAGE:-alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc}
 
@@ -54,11 +56,6 @@ for ext in mysqli pdo_mysql mbstring zip gd sodium curl xml intl session ctype \
 		exit 3
 	}
 done
-
-# The build container needs the account only for php-fpm -t. The target host
-# creates the same account in install.sh; nothing about it ships in the tar.
-addgroup -S saopanel 2>/dev/null || true
-adduser -S -D -H -G saopanel saopanel 2>/dev/null || true
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -121,12 +118,12 @@ cat >"$stage/etc/php83/php-fpm.conf" <<'CONF'
 error_log = /var/log/saopanel/php-fpm83-error.log
 daemonize = no
 
+; The socket belongs to whichever account runs the master process, here www-php;
+; a non-root master cannot chown it, and php-fpm ignores user/group in that
+; case, so this pool sets neither. nginx runs as saopanel and connects through
+; its www-php group membership, which the panel installer has to grant.
 [saopanel]
-user = saopanel
-group = saopanel
 listen = /run/saopanel/php/php-fpm83.sock
-listen.owner = saopanel
-listen.group = saopanel
 listen.mode = 0660
 pm = ondemand
 pm.max_children = 5
@@ -148,7 +145,10 @@ JSON
 mkdir -p /var/lib/saopanel/apps/php-fpm
 ln -sfn "$stage" /var/lib/saopanel/apps/php-fpm/current
 mkdir -p /var/run/saopanel/php /var/log/saopanel
-"$stage/sbin/php-fpm" -t -y "$stage/etc/php83/php-fpm.conf" >/dev/null || {
+# -R (--allow-to-run-as-root) is for this test only: the builder runs as root,
+# and a root master refuses a pool without a `user` directive. On the target the
+# unit runs as www-php, which is exactly why the pool sets no user.
+"$stage/sbin/php-fpm" -t -R -y "$stage/etc/php83/php-fpm.conf" >/dev/null || {
 	echo "build.sh: bundled php-fpm rejected its configuration" >&2
 	exit 3
 }
