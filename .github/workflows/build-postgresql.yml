@@ -59,7 +59,7 @@ jobs:
         run: |
           cd dist
           sha256sum -c SHA256SUMS
-          tar -tzf postgresql-*.tar.gz | head
+          tar -tzf postgresql-*.tar.gz >/dev/null && echo "tarball listed ok"
           # The binary proves what it is in its own words: build.sh has already
           # refused the build if `file` did not say static, if ldd resolved a
           # library, or if -t failed, and it fails here if this text lost one of
