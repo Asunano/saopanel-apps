@@ -168,21 +168,36 @@ adduser -S -D -H -G mysql mysql 2>/dev/null || true
 smoke="$work/smoke"
 mkdir -p "$smoke/data" "$smoke/run"
 chown -R mysql:mysql "$smoke"
-su mysql -s /bin/sh -c "SAOPANEL_MARIADB_DATA=$smoke/data SAOPANEL_MARIADB_RUN=$smoke/run SAOPANEL_MARIADB_PORT=33061 '$stage/sbin/mariadb' --test-config"
-su mysql -s /bin/sh -c "SAOPANEL_MARIADB_DATA=$smoke/data SAOPANEL_MARIADB_RUN=$smoke/run SAOPANEL_MARIADB_PORT=33061 '$stage/sbin/mariadb'" &
-server=$!
-i=0
-while [ ! -S "$smoke/run/mysqld.sock" ] && [ "$i" -lt 60 ]; do
-	i=$((i + 1))
-	sleep 1
-done
-[ -S "$smoke/run/mysqld.sock" ] || {
-	echo "build.sh: the bundled MariaDB did not open its socket" >&2
-	kill "$server" 2>/dev/null || true
-	exit 3
+sock="$smoke/run/mysqld.sock"
+
+# wait_for_socket blocks until the socket exists, the server dies, or 300s pass.
+# Under qemu the first start (initdb / install-db through the emulated server)
+# takes minutes rather than seconds, so the deadline is generous and a dead
+# server is reported with its own log instead of a bare timeout.
+wait_for_socket() {
+	sock=$1 server=$2 log=$3 i=0
+	while [ ! -S "$sock" ]; do
+		i=$((i + 1))
+		if ! kill -0 "$server" 2>/dev/null; then
+			echo "build.sh: the bundled server exited during startup:" >&2
+			cat "$log" >&2
+			exit 3
+		fi
+		if [ "$i" -ge 300 ]; then
+			echo "build.sh: the bundled server did not open its socket in 300s:" >&2
+			cat "$log" >&2
+			kill "$server" 2>/dev/null || true
+			exit 3
+		fi
+		sleep 1
+	done
 }
-"$stage/sbin/mariadb" --version >/dev/null
-"$stage/rootfs/usr/bin/mariadb" --socket="$smoke/run/mysqld.sock" -uroot -e 'SELECT 1' >/dev/null
+
+su mysql -s /bin/sh -c "SAOPANEL_MARIADB_DATA=$smoke/data SAOPANEL_MARIADB_RUN=$smoke/run SAOPANEL_MARIADB_PORT=33061 '$stage/sbin/mariadb' --test-config"
+su mysql -s /bin/sh -c "SAOPANEL_MARIADB_DATA=$smoke/data SAOPANEL_MARIADB_RUN=$smoke/run SAOPANEL_MARIADB_PORT=33061 '$stage/sbin/mariadb'" >"$work/server.log" 2>&1 &
+server=$!
+wait_for_socket "$sock" "$server" "$work/server.log"
+"$stage/rootfs/usr/bin/mariadb" --socket="$sock" -uroot -e 'SELECT 1' >/dev/null
 kill "$server" 2>/dev/null || true
 wait "$server" 2>/dev/null || true
 

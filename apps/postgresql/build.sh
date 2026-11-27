@@ -133,19 +133,35 @@ adduser -S -D -H -G postgres postgres 2>/dev/null || true
 smoke="$work/smoke"
 mkdir -p "$smoke/data" "$smoke/run"
 chown -R postgres:postgres "$smoke"
-su postgres -s /bin/sh -c "SAOPANEL_PG_DATA=$smoke/data SAOPANEL_PG_RUN=$smoke/run SAOPANEL_PG_PORT=54321 '$stage/sbin/postgres' --test-config"
-su postgres -s /bin/sh -c "SAOPANEL_PG_DATA=$smoke/data SAOPANEL_PG_RUN=$smoke/run SAOPANEL_PG_PORT=54321 '$stage/sbin/postgres'" &
-server=$!
-i=0
-while [ ! -S "$smoke/run/.s.PGSQL.54321" ] && [ "$i" -lt 60 ]; do
-	i=$((i + 1))
-	sleep 1
-done
-[ -S "$smoke/run/.s.PGSQL.54321" ] || {
-	echo "build.sh: the bundled PostgreSQL did not open its socket" >&2
-	kill "$server" 2>/dev/null || true
-	exit 3
+sock="$smoke/run/.s.PGSQL.54321"
+
+# wait_for_socket blocks until the socket exists, the server dies, or 300s pass.
+# Under qemu the first start (initdb / install-db through the emulated server)
+# takes minutes rather than seconds, so the deadline is generous and a dead
+# server is reported with its own log instead of a bare timeout.
+wait_for_socket() {
+	sock=$1 server=$2 log=$3 i=0
+	while [ ! -S "$sock" ]; do
+		i=$((i + 1))
+		if ! kill -0 "$server" 2>/dev/null; then
+			echo "build.sh: the bundled server exited during startup:" >&2
+			cat "$log" >&2
+			exit 3
+		fi
+		if [ "$i" -ge 300 ]; then
+			echo "build.sh: the bundled server did not open its socket in 300s:" >&2
+			cat "$log" >&2
+			kill "$server" 2>/dev/null || true
+			exit 3
+		fi
+		sleep 1
+	done
 }
+
+su postgres -s /bin/sh -c "SAOPANEL_PG_DATA=$smoke/data SAOPANEL_PG_RUN=$smoke/run SAOPANEL_PG_PORT=54321 '$stage/sbin/postgres' --test-config"
+su postgres -s /bin/sh -c "SAOPANEL_PG_DATA=$smoke/data SAOPANEL_PG_RUN=$smoke/run SAOPANEL_PG_PORT=54321 '$stage/sbin/postgres'" >"$work/server.log" 2>&1 &
+server=$!
+wait_for_socket "$sock" "$server" "$work/server.log"
 LD_LIBRARY_PATH="$stage/rootfs/lib:$stage/rootfs/usr/lib" \
 	"$stage/rootfs/lib/$MUSL" "$stage/rootfs/usr/bin/psql" \
 	-h "$smoke/run" -p 54321 -U postgres -c 'SELECT 1' >/dev/null

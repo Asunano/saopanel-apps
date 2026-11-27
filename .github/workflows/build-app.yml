@@ -91,7 +91,7 @@ jobs:
         run: |
           chmod +x apps/release.sh
           chmod +x apps/nginx/build.sh
-          apps/release.sh --from-existing
+          bash apps/release.sh --from-existing
 
       # The final judge is the panel's own loader (saopanel/internal/appstore/
       # manifest), and it runs in the panel repo when the manifests are packaged

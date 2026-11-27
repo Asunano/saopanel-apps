@@ -92,7 +92,7 @@ jobs:
         run: |
           chmod +x apps/release.sh
           chmod +x apps/postgresql/build.sh
-          apps/postgresql/release.sh --from-existing
+          bash apps/postgresql/release.sh --from-existing
 
       # The final judge is the panel's own loader (saopanel/internal/appstore/
       # manifest), and it runs in the panel repo when the manifests are packaged

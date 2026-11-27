@@ -90,6 +90,7 @@ sed -n '/^id:/,$p' apps/phpmyadmin/manifest.yaml.tmpl >"$work/body.yaml"
 	echo "# Do not edit: the next release replaces this file."
 	sed -e "s|<version>|${APP_VERSION}|g" \
 		-e "s|<build>|${BUILD}|g" \
+		-e "s|<org>|${APP_ORG:-Asunano}|g" \
 		-e "/^<artefacts>\$/r $work/artefacts.yaml" -e "/^<artefacts>\$/d" \
 		-e "/^<mirrors>\$/r $work/mirrors.yaml" -e "/^<mirrors>\$/d" \
 		"$work/body.yaml"
