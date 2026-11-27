@@ -179,11 +179,26 @@ fetch_verified() {
 		cp "$cached" "${file}.part"
 	else
 		echo ">> ${file} <- ${url}"
-		curl -fsSL --retry 3 -o "${file}.part" "$url"
+		# A checksum mismatch on a live mirror is usually a truncated or
+		# substituted body: one bad byte from a CDN edge produced a green amd64
+		# build and a red arm64 one in the same run. Three attempts cost nothing
+		# and turn a flaky edge into a slow download rather than a failed release.
+		attempt=1
+		while [ "$attempt" -le 3 ]; do
+			rm -f "${file}.part"
+			curl -fsSL -o "${file}.part" "$url" || true
+			if [ -s "${file}.part" ] &&
+				echo "${want}  ${file}.part" | sha256sum -c - >/dev/null 2>&1; then
+				break
+			fi
+			echo "build.sh: ${file} attempt ${attempt} did not match (got $(sha256sum "${file}.part" 2>/dev/null | cut -d' ' -f1))" >&2
+			attempt=$((attempt + 1))
+			sleep 3
+		done
 	fi
-	if ! echo "${want}  ${file}.part" | sha256sum -c - >/dev/null; then
+	if ! echo "${want}  ${file}.part" | sha256sum -c - >/dev/null 2>&1; then
 		echo "build.sh: ${file} does not hash to ${want}" >&2
-		echo "build.sh: got $(sha256sum "${file}.part" | cut -d' ' -f1)" >&2
+		echo "build.sh: got $(sha256sum "${file}.part" 2>/dev/null | cut -d' ' -f1)" >&2
 		exit 3
 	fi
 	mv "${file}.part" "$file"
