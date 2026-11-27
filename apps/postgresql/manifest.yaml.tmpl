@@ -1,0 +1,49 @@
+# Template for the published PostgreSQL manifest. It is rendered, never shipped:
+# `apps/postgresql/release.sh` fills every <…> from the tarballs it just built and
+# measured.
+#
+# PostgreSQL ships as a service, not as files: the package carries its own musl
+# loader, the server, and a wrapper that initialises the data directory on first
+# start. `data_dir: true` is what asks the installer for <root>/data/postgresql,
+# owned by the `postgres` account — postgresqld refuses to run as root, and the panel's
+# own account must not own a database server.
+id: postgresql
+name: PostgreSQL
+version: <version>
+build: <build>
+runtime:
+  kind: systemd
+  user: mysql
+  executable: sbin/postgresql
+  test_args: ["--test-config"]
+  runtime_directory: saopanel/postgresql
+  log_dir: /opt/saopanel/log/apps
+  data_dir: true
+summary: PostgreSQL 数据库服务（自带 rootfs，面板托管配置与数据目录）
+homepage: https://github.com/<org>/saopanel-apps
+install:
+  type: tarball
+  artefacts:
+<artefacts>
+  # Mirrors list release directories, not files: the panel rewrites each one to
+  # this host's artefact name, so one entry serves both architectures.
+  mirrors:
+<mirrors>
+# What this package provides to the store: phpMyAdmin's requires: [mysql]
+# matches either a PostgreSQL or a MySQL server.
+capabilities: [mysql, postgresql]
+# No ports in the manifest: the installer probes a declared port with an HTTP
+# request, and a database answers its own protocol. The panel reaches it through
+# a registered database source, not through a probe.
+services:
+  - unit: saopanel-postgresql
+    ports: []
+uninstall:
+  remove:
+    - "{prefix}"
+    - /etc/systemd/system/saopanel-postgresql.service
+  keep:
+    - /opt/saopanel/data/postgresql
+    - /opt/saopanel/www
+    - /opt/saopanel/state/site-conf
+    - /opt/saopanel/state/certs
