@@ -100,6 +100,7 @@ case "${1:-}" in
 --test-config)
 	"$MUSL" "$BIN/postgres" --version >/dev/null
 	mkdir -p "$RUN"
+	exit 0
 	;;
 esac
 

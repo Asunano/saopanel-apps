@@ -68,17 +68,33 @@ mkdir -p "$stage/rootfs/lib" "$stage/rootfs/usr/lib" "$stage/sbin"
 # package manager and no shell are shipped; the wrapper uses the host's /bin/sh.
 cp -aL /lib/. "$stage/rootfs/lib/"
 cp -aL /usr/lib/. "$stage/rootfs/usr/lib/"
-mkdir -p "$stage/rootfs/usr/sbin" "$stage/rootfs/usr/bin" "$stage/rootfs/usr/share"
-cp -L "$MARIADBD" "$stage/rootfs/usr/sbin/mariadbd"
+mkdir -p "$stage/rootfs/usr/libexec-mariadb" "$stage/rootfs/usr/bin" "$stage/rootfs/usr/share"
+cp -L "$MARIADBD" "$stage/rootfs/usr/libexec-mariadb/mariadbd"
 cp -L "$INSTALL_DB" "$stage/rootfs/usr/bin/mariadb-install-db"
-cp -L "$CLIENT" "$stage/rootfs/usr/bin/mariadb"
-cp -L "$ADMIN" "$stage/rootfs/usr/bin/mariadb-admin"
-# The install script calls a few helpers; keep the ones it uses rather than
-# guessing at the whole /usr/bin.
+for tool in mariadb mariadb-admin mariadb-dump; do
+	src=$(command -v "$tool" || echo "/usr/bin/$tool")
+	[ -x "$src" ] && cp -L "$src" "$stage/rootfs/usr/libexec-mariadb/$tool"
+done
 for helper in my_print_defaults resolveip perror; do
-	if [ -x "/usr/bin/$helper" ]; then
-		cp -L "/usr/bin/$helper" "$stage/rootfs/usr/bin/$helper"
-	fi
+	src=$(command -v "$helper" || echo "/usr/bin/$helper")
+	[ -x "$src" ] && cp -L "$src" "$stage/rootfs/usr/libexec-mariadb/$helper"
+done
+
+# Every name in usr/bin is a shim: it execs the real binary through the bundled
+# loader with the bundled libraries. A musl binary run directly on a glibc host
+# fails with "Not a valid dynamic program", and mariadb-install-db is a shell
+# script that expects to find its server at <basedir>/bin/mariadbd.
+for name in mariadbd mariadb mariadb-admin mariadb-dump my_print_defaults resolveip perror; do
+	[ -f "$stage/rootfs/usr/libexec-mariadb/$name" ] || continue
+	cat >"$stage/rootfs/usr/bin/$name" <<SHIM
+#!/bin/sh
+set -eu
+ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/../.." && pwd)
+LD_LIBRARY_PATH="\$ROOT/lib:\$ROOT/usr/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}" \\
+	exec "\$ROOT/lib/MUSL_NAME" "\$ROOT/usr/libexec-mariadb/$name" "\$@"
+SHIM
+	chmod 0755 "$stage/rootfs/usr/bin/$name"
+	sed -i "s|MUSL_NAME|$MUSL|" "$stage/rootfs/usr/bin/$name"
 done
 cp -a /usr/share/mariadb "$stage/rootfs/usr/share/mariadb"
 [ -x "$stage/rootfs/lib/$MUSL" ] || {
@@ -96,32 +112,32 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 DATA=${SAOPANEL_MARIADB_DATA:-/opt/saopanel/data/mariadb}
 RUN=${SAOPANEL_MARIADB_RUN:-/run/saopanel/mariadb}
 PORT=${SAOPANEL_MARIADB_PORT:-3306}
-MUSL="$ROOT/rootfs/lib/MUSL_NAME"
 export LD_LIBRARY_PATH="$ROOT/rootfs/lib:$ROOT/rootfs/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 case "${1:-}" in
 --version | -V)
-	exec "$MUSL" "$ROOT/rootfs/usr/sbin/mariadbd" --version
+	exec "$ROOT/rootfs/usr/bin/mariadbd" --version
 	;;
 --test-config)
 	# What ExecStartPre runs: the binaries load and the config parses, without
 	# touching the data directory.
-	"$MUSL" "$ROOT/rootfs/usr/sbin/mariadbd" --version >/dev/null
+	"$ROOT/rootfs/usr/bin/mariadbd" --version >/dev/null
 	mkdir -p "$RUN"
+	exit 0
 	;;
 esac
 
 mkdir -p "$DATA" "$RUN"
 if [ ! -d "$DATA/mysql" ]; then
 	echo "mariadb: initialising $DATA" >&2
-	"$MUSL" "$ROOT/rootfs/usr/bin/mariadb-install-db" \
-		--datadir="$DATA" --basedir="$ROOT/rootfs" \
+	sh "$ROOT/rootfs/usr/bin/mariadb-install-db" \
+		--basedir="$ROOT/rootfs/usr" --datadir="$DATA" \
 		--auth-root-authentication-method=normal --skip-test-db >&2
 fi
 
-exec "$MUSL" "$ROOT/rootfs/usr/sbin/mariadbd" \
+exec "$ROOT/rootfs/usr/bin/mariadbd" \
 	--datadir="$DATA" \
-	--basedir="$ROOT/rootfs" \
+	--basedir="$ROOT/rootfs/usr" \
 	--plugin-dir="$ROOT/rootfs/usr/lib/mariadb/plugin" \
 	--lc-messages-dir="$ROOT/rootfs/usr/share/mariadb" \
 	--socket="$RUN/mysqld.sock" \
@@ -166,9 +182,7 @@ done
 	exit 3
 }
 "$stage/sbin/mariadb" --version >/dev/null
-LD_LIBRARY_PATH="$stage/rootfs/lib:$stage/rootfs/usr/lib" \
-	"$stage/rootfs/lib/$MUSL" "$stage/rootfs/usr/bin/mariadb" \
-	--socket="$smoke/run/mysqld.sock" -uroot -e 'SELECT 1' >/dev/null
+"$stage/rootfs/usr/bin/mariadb" --socket="$smoke/run/mysqld.sock" -uroot -e 'SELECT 1' >/dev/null
 kill "$server" 2>/dev/null || true
 wait "$server" 2>/dev/null || true
 
