@@ -166,6 +166,12 @@ run_step() {
 # used and no network is touched. It is mounted into the container by the docker
 # branch below, which is how a build runs on a host whose network cannot reach
 # the sources at all (this project's first dry-run had exactly that problem).
+# SOURCES_MIRROR is a base URL serving the pinned tarballs under their upstream
+# names. The project publishes one as a release asset because a CI runner's
+# egress proxy served three different bodies for the same zlib URL in one run;
+# the checksum is unchanged, so the mirror can only help.
+SOURCES_MIRROR=${SOURCES_MIRROR:-https://github.com/Asunano/saopanel-apps/releases/download/sources-1}
+
 fetch_verified() {
 	local file=$1 url=$2 want=$3 cached=""
 	if [ -n "${SRC_DIR:-}" ]; then
@@ -184,9 +190,14 @@ fetch_verified() {
 		# build and a red arm64 one in the same run. Three attempts cost nothing
 		# and turn a flaky edge into a slow download rather than a failed release.
 		attempt=1
-		while [ "$attempt" -le 3 ]; do
+		while [ "$attempt" -le 4 ]; do
 			rm -f "${file}.part"
-			curl -fsSL -o "${file}.part" "$url" || true
+			src=$url
+			# Last attempt goes to the mirror: four failures against one host is
+			# the proxy, not the file.
+			[ "$attempt" -eq 4 ] && src="${SOURCES_MIRROR%/}/$(basename "$url")"
+			echo ">> ${file} <- ${src}"
+			curl -fsSL -o "${file}.part" "$src" || true
 			if [ -s "${file}.part" ] &&
 				echo "${want}  ${file}.part" | sha256sum -c - >/dev/null 2>&1; then
 				break
