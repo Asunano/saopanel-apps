@@ -4,13 +4,16 @@
 #   APP_ORG=Asunano apps/php-fpm/release.sh
 #   APP_ORG=Asunano apps/php-fpm/release.sh --from-existing
 #
+# BUILD must match apps/php-fpm/build.sh: a rebuild of the same upstream version
+# gets a new sao-r<n>, and r3 packages still point at the pre-single-root layout.
+#
 # The manifest checksums and sizes are measured from the files, never typed.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
 
-BUILD=${BUILD:-sao-r3}
+BUILD=${BUILD:-sao-r4}
 APP_REPO=${APP_REPO:-saopanel-apps}
 ARCHES=${ARCHES:-"amd64 arm64"}
 DL_BASE=${DL_BASE:-}
