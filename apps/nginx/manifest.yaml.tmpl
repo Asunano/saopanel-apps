@@ -30,7 +30,10 @@ install:
   # this host's artefact name, so one entry serves both architectures.
   mirrors:
 <mirrors>
-capabilities: [http_ssl, http_v2, realip, stub_status, gzip_static, stream]
+# web-server is the capability other apps require: phpMyAdmin asks for it, and
+# a manifest that only listed its fine-grained features made that requirement
+# impossible to satisfy with the very package that satisfies it.
+capabilities: [web-server, http_ssl, http_v2, realip, stub_status, gzip_static, stream]
 services:
   - unit: saopanel-nginx
     ports: [80, 443]

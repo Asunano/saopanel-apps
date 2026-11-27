@@ -32,7 +32,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 APP_VERSION=${APP_VERSION:-1.31.9}
-BUILD=${BUILD:-sao-r4}
+BUILD=${BUILD:-sao-r5}
 APP_REPO=${APP_REPO:-saopanel-apps}
 ARCHES=${ARCHES:-"amd64 arm64"}
 DL_BASE=${DL_BASE:-}
