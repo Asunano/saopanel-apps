@@ -286,6 +286,9 @@ http {
   uwsgi_temp_path tmp/uwsgi;
   scgi_temp_path tmp/scgi;
   include /opt/saopanel/state/site-conf/*.conf;
+  # Server blocks an app ships for itself (phpMyAdmin's 8081 vhost). The glob is
+  # empty on a panel without such an app, which nginx accepts.
+  include /opt/saopanel/apps/*/current/conf/nginx/*.conf;
 
   # A fresh install has no site config yet, so the binary has to answer for
   # itself or the panel's probe would fail on a machine that is working.
